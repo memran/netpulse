@@ -1,0 +1,51 @@
+app:
+  refresh_interval: 2s
+  timezone: Local
+  debug: false
+
+network:
+  interfaces: []
+
+ping:
+  interval: 5s
+  timeout: 10s
+  packet_count: 5
+
+dns:
+  interval: 30s
+  timeout: 5s
+  servers:
+    - 1.1.1.1:53
+    - 8.8.8.8:53
+  query_domain: google.com
+
+targets:
+  icmp:
+    - 1.1.1.1
+    - 8.8.8.8
+  dns:
+    - google.com
+  http:
+    - https://google.com
+    - https://youtube.com
+    - https://cloudflare.com
+
+http:
+  interval: 30s
+  timeout: 10s
+  method: HEAD
+
+speedtest:
+  enabled: true
+  download_size_mb: 25
+  upload_size_mb: 10
+  workers: 4
+  download_url: "https://speed.cloudflare.com/__down"
+  upload_url: "https://speed.cloudflare.com/__up"
+
+storage:
+  sqlite_path: netpulse.db
+
+ui:
+  theme: dark
+  compact_mode: false
