@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/spf13/viper"
+	"go-consolekit/console"
+	"gopkg.in/yaml.v3"
 )
 
 const defaultYAML = `app:
@@ -60,68 +61,68 @@ ui:
 `
 
 type Config struct {
-	App     AppConfig     `mapstructure:"app"`
-	Network NetworkConfig `mapstructure:"network"`
-	Ping    PingConfig    `mapstructure:"ping"`
-	DNS     DNSConfig     `mapstructure:"dns"`
-	Targets TargetsConfig `mapstructure:"targets"`
-	HTTP    HTTPConfig    `mapstructure:"http"`
-	Speed   SpeedConfig   `mapstructure:"speedtest"`
-	Storage StorageConfig `mapstructure:"storage"`
-	UI      UIConfig      `mapstructure:"ui"`
+	App     AppConfig
+	Network NetworkConfig
+	Ping    PingConfig
+	DNS     DNSConfig
+	Targets TargetsConfig
+	HTTP    HTTPConfig
+	Speed   SpeedConfig
+	Storage StorageConfig
+	UI      UIConfig
 }
 
 type AppConfig struct {
-	RefreshInterval time.Duration `mapstructure:"refresh_interval"`
-	Timezone        string        `mapstructure:"timezone"`
-	Debug           bool          `mapstructure:"debug"`
+	RefreshInterval time.Duration
+	Timezone        string
+	Debug           bool
 }
 
 type NetworkConfig struct {
-	Interfaces []string `mapstructure:"interfaces"`
+	Interfaces []string
 }
 
 type PingConfig struct {
-	Interval    time.Duration `mapstructure:"interval"`
-	Timeout     time.Duration `mapstructure:"timeout"`
-	PacketCount int           `mapstructure:"packet_count"`
+	Interval    time.Duration
+	Timeout     time.Duration
+	PacketCount int
 }
 
 type DNSConfig struct {
-	Interval    time.Duration `mapstructure:"interval"`
-	Timeout     time.Duration `mapstructure:"timeout"`
-	Servers     []string      `mapstructure:"servers"`
-	QueryDomain string        `mapstructure:"query_domain"`
+	Interval    time.Duration
+	Timeout     time.Duration
+	Servers     []string
+	QueryDomain string
 }
 
 type TargetsConfig struct {
-	ICMP []string `mapstructure:"icmp"`
-	DNS  []string `mapstructure:"dns"`
-	HTTP []string `mapstructure:"http"`
+	ICMP []string
+	DNS  []string
+	HTTP []string
 }
 
 type HTTPConfig struct {
-	Interval time.Duration `mapstructure:"interval"`
-	Timeout  time.Duration `mapstructure:"timeout"`
-	Method   string        `mapstructure:"method"`
+	Interval time.Duration
+	Timeout  time.Duration
+	Method   string
 }
 
 type SpeedConfig struct {
-	Enabled         bool  `mapstructure:"enabled"`
-	DownloadSizeMB  int64 `mapstructure:"download_size_mb"`
-	UploadSizeMB    int64 `mapstructure:"upload_size_mb"`
-	Workers         int   `mapstructure:"workers"`
-	DownloadURL     string `mapstructure:"download_url"`
-	UploadURL       string `mapstructure:"upload_url"`
+	Enabled        bool
+	DownloadSizeMB int64
+	UploadSizeMB   int64
+	Workers        int
+	DownloadURL    string
+	UploadURL      string
 }
 
 type StorageConfig struct {
-	SQLitePath string `mapstructure:"sqlite_path"`
+	SQLitePath string
 }
 
 type UIConfig struct {
-	Theme       string `mapstructure:"theme"`
-	CompactMode bool   `mapstructure:"compact_mode"`
+	Theme       string
+	CompactMode bool
 }
 
 func Default() *Config {
@@ -156,12 +157,12 @@ func Default() *Config {
 			Method:   "HEAD",
 		},
 		Speed: SpeedConfig{
-			Enabled:         true,
-			DownloadSizeMB:  25,
-			UploadSizeMB:    10,
-			Workers:         4,
-			DownloadURL:     "https://speed.cloudflare.com/__down",
-			UploadURL:       "https://speed.cloudflare.com/__up",
+			Enabled:        true,
+			DownloadSizeMB: 25,
+			UploadSizeMB:   10,
+			Workers:        4,
+			DownloadURL:    "https://speed.cloudflare.com/__down",
+			UploadURL:      "https://speed.cloudflare.com/__up",
 		},
 		Storage: StorageConfig{
 			SQLitePath: "netpulse.db",
@@ -174,10 +175,53 @@ func Default() *Config {
 }
 
 func Load(paths ...string) (*Config, error) {
-	v := viper.New()
-	v.SetConfigName("settings")
-	v.SetConfigType("yaml")
+	path, found, err := findConfigFile(paths...)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		_ = os.WriteFile("settings.yml", []byte(defaultYAML), 0o644)
+		return Default(), nil
+	}
 
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	// Keep parse errors visible; console.Config swallows them internally.
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	cfgStore := console.NewConfig()
+	cfgStore.LoadYAML(path)
+
+	cfg := Default()
+	if err := applyConfigStore(cfg, cfgStore); err != nil {
+		return nil, err
+	}
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
+
+	cfg.enforceFreeLimits()
+	return cfg, nil
+}
+
+func WriteDefaultFile(path string) error {
+	target := path
+	if target == "" {
+		target = "settings.yml"
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil && filepath.Dir(target) != "." {
+		return err
+	}
+	return os.WriteFile(target, []byte(defaultYAML), 0o644)
+}
+
+func findConfigFile(paths ...string) (string, bool, error) {
 	searchPaths := []string{"."}
 	if home, err := os.UserHomeDir(); err == nil {
 		searchPaths = append(searchPaths, filepath.Join(home, ".config", "netpulse"))
@@ -189,68 +233,106 @@ func Load(paths ...string) (*Config, error) {
 	}
 
 	for _, p := range searchPaths {
-		v.AddConfigPath(p)
-	}
-
-	v.SetDefault("app.refresh_interval", "2s")
-	v.SetDefault("app.timezone", "Local")
-	v.SetDefault("app.debug", false)
-
-	v.SetDefault("ping.interval", "5s")
-	v.SetDefault("ping.timeout", "10s")
-	v.SetDefault("ping.packet_count", 5)
-
-	v.SetDefault("dns.interval", "30s")
-	v.SetDefault("dns.timeout", "5s")
-	v.SetDefault("dns.servers", []string{"1.1.1.1:53", "8.8.8.8:53"})
-	v.SetDefault("dns.query_domain", "google.com")
-
-	v.SetDefault("targets.icmp", []string{"1.1.1.1", "8.8.8.8"})
-	v.SetDefault("targets.dns", []string{"google.com", "cloudflare.com"})
-	v.SetDefault("targets.http", []string{"https://1.1.1.1", "https://8.8.8.8"})
-
-	v.SetDefault("http.interval", "30s")
-	v.SetDefault("http.timeout", "10s")
-	v.SetDefault("http.method", "HEAD")
-
-	v.SetDefault("speedtest.enabled", true)
-	v.SetDefault("speedtest.download_size_mb", 25)
-	v.SetDefault("speedtest.upload_size_mb", 10)
-	v.SetDefault("speedtest.workers", 4)
-	v.SetDefault("speedtest.download_url", "https://speed.cloudflare.com/__down")
-	v.SetDefault("speedtest.upload_url", "https://speed.cloudflare.com/__up")
-
-	v.SetDefault("storage.sqlite_path", "netpulse.db")
-
-	v.SetDefault("ui.theme", "dark")
-	v.SetDefault("ui.compact_mode", false)
-
-	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			_ = os.WriteFile("settings.yml", []byte(defaultYAML), 0644)
-			return Default(), nil
+		info, err := os.Stat(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", false, fmt.Errorf("read config: %w", err)
 		}
-		return nil, fmt.Errorf("read config: %w", err)
+
+		candidate := p
+		if info.IsDir() {
+			candidate = filepath.Join(p, "settings.yml")
+		}
+
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, true, nil
+		} else if !os.IsNotExist(err) {
+			return "", false, fmt.Errorf("read config: %w", err)
+		}
 	}
 
-	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("unmarshal config: %w", err)
-	}
+	return "", false, nil
+}
 
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("validate config: %w", err)
-	}
-	
-	cfg.enforceFreeLimits()
+func applyConfigStore(cfg *Config, c *console.Config) error {
+	cfg.App.RefreshInterval = durationValue(c, "app.refresh_interval", cfg.App.RefreshInterval)
+	cfg.App.Timezone = c.GetString("app.timezone", cfg.App.Timezone)
+	cfg.App.Debug = c.GetBool("app.debug", cfg.App.Debug)
 
-	return &cfg, nil
+	cfg.Network.Interfaces = stringSliceValue(c, "network.interfaces", cfg.Network.Interfaces)
+
+	cfg.Ping.Interval = durationValue(c, "ping.interval", cfg.Ping.Interval)
+	cfg.Ping.Timeout = durationValue(c, "ping.timeout", cfg.Ping.Timeout)
+	cfg.Ping.PacketCount = c.GetInt("ping.packet_count", cfg.Ping.PacketCount)
+
+	cfg.DNS.Interval = durationValue(c, "dns.interval", cfg.DNS.Interval)
+	cfg.DNS.Timeout = durationValue(c, "dns.timeout", cfg.DNS.Timeout)
+	cfg.DNS.Servers = stringSliceValue(c, "dns.servers", cfg.DNS.Servers)
+	cfg.DNS.QueryDomain = c.GetString("dns.query_domain", cfg.DNS.QueryDomain)
+
+	cfg.Targets.ICMP = stringSliceValue(c, "targets.icmp", cfg.Targets.ICMP)
+	cfg.Targets.DNS = stringSliceValue(c, "targets.dns", cfg.Targets.DNS)
+	cfg.Targets.HTTP = stringSliceValue(c, "targets.http", cfg.Targets.HTTP)
+
+	cfg.HTTP.Interval = durationValue(c, "http.interval", cfg.HTTP.Interval)
+	cfg.HTTP.Timeout = durationValue(c, "http.timeout", cfg.HTTP.Timeout)
+	cfg.HTTP.Method = c.GetString("http.method", cfg.HTTP.Method)
+
+	cfg.Speed.Enabled = c.GetBool("speedtest.enabled", cfg.Speed.Enabled)
+	cfg.Speed.DownloadSizeMB = int64(c.GetInt("speedtest.download_size_mb", int(cfg.Speed.DownloadSizeMB)))
+	cfg.Speed.UploadSizeMB = int64(c.GetInt("speedtest.upload_size_mb", int(cfg.Speed.UploadSizeMB)))
+	cfg.Speed.Workers = c.GetInt("speedtest.workers", cfg.Speed.Workers)
+	cfg.Speed.DownloadURL = c.GetString("speedtest.download_url", cfg.Speed.DownloadURL)
+	cfg.Speed.UploadURL = c.GetString("speedtest.upload_url", cfg.Speed.UploadURL)
+
+	cfg.Storage.SQLitePath = c.GetString("storage.sqlite_path", cfg.Storage.SQLitePath)
+
+	cfg.UI.Theme = c.GetString("ui.theme", cfg.UI.Theme)
+	cfg.UI.CompactMode = c.GetBool("ui.compact_mode", cfg.UI.CompactMode)
+	return nil
+}
+
+func durationValue(c *console.Config, key string, fallback time.Duration) time.Duration {
+	val := c.Get(key)
+	switch v := val.(type) {
+	case string:
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	case int:
+		return time.Duration(v)
+	case int64:
+		return time.Duration(v)
+	case float64:
+		return time.Duration(v)
+	}
+	return fallback
+}
+
+func stringSliceValue(c *console.Config, key string, fallback []string) []string {
+	val := c.Get(key)
+	switch v := val.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return fallback
+	}
 }
 
 func (c *Config) enforceFreeLimits() {
 	total := 0
 	limit := 5
-	
+
 	icmp := []string{}
 	for _, t := range c.Targets.ICMP {
 		if total < limit {
@@ -259,7 +341,7 @@ func (c *Config) enforceFreeLimits() {
 		}
 	}
 	c.Targets.ICMP = icmp
-	
+
 	dns := []string{}
 	for _, t := range c.Targets.DNS {
 		if total < limit {
@@ -268,7 +350,7 @@ func (c *Config) enforceFreeLimits() {
 		}
 	}
 	c.Targets.DNS = dns
-	
+
 	http := []string{}
 	for _, t := range c.Targets.HTTP {
 		if total < limit {

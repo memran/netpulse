@@ -26,13 +26,13 @@ import (
 )
 
 type App struct {
-	cfg   *config.Config
-	log   *logger.Logger
-	state *state.AppState
-	alert *alert.Engine
-	store *storage.Repository
-	dash  *ui.Dashboard
-	prog  *tea.Program
+	cfg      *config.Config
+	log      *logger.Logger
+	stateMgr *state.Manager
+	alert    *alert.Engine
+	store    *storage.Repository
+	dash     *ui.Dashboard
+	prog     *tea.Program
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -44,11 +44,7 @@ func Run(cfgPath string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logPath := ""
-	if !cfg.App.Debug {
-		logPath = "netpulse.log"
-	}
-	log, err := logger.New(logPath, cfg.App.Debug)
+	log, err := logger.New("", cfg.App.Debug)
 	if err != nil {
 		return fmt.Errorf("create logger: %w", err)
 	}
@@ -56,7 +52,7 @@ func Run(cfgPath string) error {
 
 	log.Infof("NetPulse Community v0.1.0 starting")
 
-	st := state.New()
+	stateMgr := state.NewManager()
 	alerts := alert.NewEngine(50)
 	alerts.Add(alert.SeverityInfo, "system", "NetPulse Community started")
 
@@ -68,11 +64,11 @@ func Run(cfgPath string) error {
 	}
 
 	app := &App{
-		cfg:   cfg,
-		log:   log,
-		state: st,
-		alert: alerts,
-		store: repo,
+		cfg:      cfg,
+		log:      log,
+		stateMgr: stateMgr,
+		alert:    alerts,
+		store:    repo,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -86,35 +82,23 @@ func Run(cfgPath string) error {
 		CompactMode: cfg.UI.CompactMode,
 	}
 
-	app.dash = ui.NewDashboard(st, alerts, dashCfg)
+	app.dash = ui.NewDashboard(stateMgr.Snapshot(), alerts, dashCfg)
 	if repo != nil {
 		app.dash.SetStore(repo)
 	}
 
-	app.startCollectors(ctx)
-	app.startAlertEvaluator(ctx)
-	app.startStateFlusher(ctx)
-
 	app.prog = tea.NewProgram(
 		app.dash,
 		tea.WithAltScreen(),
+		tea.WithFPS(10),
+		tea.WithANSICompressor(),
 		tea.WithoutSignalHandler(),
 	)
 
-	go func() {
-		ticker := time.NewTicker(cfg.App.RefreshInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if app.prog != nil {
-					app.prog.Send(ui.StateUpdateMsg{})
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	app.startStateManager(ctx)
+	app.startCollectors(ctx)
+	app.startAlertEvaluator(ctx)
+	app.startStateFlusher(ctx)
 
 	go func() {
 		select {
@@ -143,11 +127,35 @@ func Run(cfgPath string) error {
 	return nil
 }
 
+func (a *App) startStateManager(ctx context.Context) {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.stateMgr.Start(ctx)
+	}()
+
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		for {
+			select {
+			case snap := <-a.stateMgr.Events():
+				if a.prog != nil {
+					a.prog.Send(ui.SnapshotMsg{Snapshot: snap})
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
 func (a *App) startCollectors(ctx context.Context) {
 	a.log.Info("starting collectors")
+	st := a.stateMgr.State()
 
 	if len(a.cfg.Targets.ICMP) > 0 {
-		pingColl := pingcoll.NewCollector(a.log, a.state,
+		pingColl := pingcoll.NewCollector(a.log, st,
 			a.cfg.Ping.Interval,
 			a.cfg.Ping.Timeout,
 			a.cfg.Ping.PacketCount,
@@ -166,7 +174,7 @@ func (a *App) startCollectors(ctx context.Context) {
 	if len(ifaceCfg) == 0 {
 		ifaceCfg = nil
 	}
-	ifaceColl := ifacecoll.NewCollector(a.log, a.state,
+	ifaceColl := ifacecoll.NewCollector(a.log, st,
 		a.cfg.App.RefreshInterval*2,
 		ifaceCfg,
 	)
@@ -177,7 +185,7 @@ func (a *App) startCollectors(ctx context.Context) {
 	}()
 
 	if len(a.cfg.Targets.DNS) > 0 {
-		dnsColl := dnsColl.NewCollector(a.log, a.state,
+		dnsColl := dnsColl.NewCollector(a.log, st,
 			a.cfg.DNS.Interval,
 			a.cfg.DNS.Timeout,
 			a.cfg.DNS.Servers,
@@ -193,7 +201,7 @@ func (a *App) startCollectors(ctx context.Context) {
 	}
 
 	if len(a.cfg.Targets.HTTP) > 0 {
-		httpColl := httpcoll.NewCollector(a.log, a.state,
+		httpColl := httpcoll.NewCollector(a.log, st,
 			a.cfg.HTTP.Interval,
 			a.cfg.HTTP.Timeout,
 			a.cfg.HTTP.Method,
@@ -208,14 +216,14 @@ func (a *App) startCollectors(ctx context.Context) {
 		a.log.Info("skipping HTTP collector (no targets configured)")
 	}
 
-	connDet := collector.NewConnectivityDetector(a.log, a.state)
+	connDet := collector.NewConnectivityDetector(a.log, st)
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
 		connDet.Start(ctx)
 	}()
 
-	speedTester := speedcoll.NewTester(a.log, a.state,
+	speedTester := speedcoll.NewTester(a.log, st,
 		a.cfg.Speed.DownloadURL,
 		a.cfg.Speed.UploadURL,
 		a.cfg.Speed.DownloadSizeMB,
@@ -224,7 +232,7 @@ func (a *App) startCollectors(ctx context.Context) {
 	)
 	if a.store != nil {
 		if tests, err := a.store.RecentSpeedTests(1); err == nil && len(tests) > 0 {
-			a.state.SetSpeedTest(tests[0])
+			st.SetSpeedTest(tests[0])
 		}
 		speedTester.SetOnComplete(func(res state.SpeedTestResult) {
 			if err := a.store.SaveSpeedTest(res); err != nil {
@@ -246,7 +254,7 @@ func (a *App) startAlertEvaluator(ctx context.Context) {
 		})
 	}
 
-	eval := alert.NewEvaluator(a.log, a.state, a.alert,
+	eval := alert.NewEvaluator(a.log, a.stateMgr.State(), a.alert,
 		5.0,   // loss threshold: 5%
 		200.0, // latency threshold: 200ms
 		30.0,  // jitter threshold: 30ms
@@ -272,7 +280,7 @@ func (a *App) startStateFlusher(ctx context.Context) {
 				if a.store == nil {
 					continue
 				}
-				snapshot := a.state.Read()
+				snapshot := a.stateMgr.Snapshot()
 
 				for _, ps := range snapshot.PingStats {
 					if err := a.store.SavePingSummary(ps); err != nil {

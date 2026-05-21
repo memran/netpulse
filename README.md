@@ -75,7 +75,7 @@ sudo ./netpulse /path/to/settings.yml
 | `r` | Refresh |
 | `s` | Run speed test |
 | `h` | View history |
-| `c` | Clear alerts |
+| `c` | Clear |
 | `?` | Help |
 | `↑` / `↓` | Scroll alerts |
 
@@ -104,7 +104,7 @@ Panels are organized for SSH-friendly, resize-safe terminal use:
 │ Connectivity Checks           │ Real-Time Graphs             │ Speed Test    │
 │ Local Interface               │ History Summary              │ Alerts        │
 ├───────────────────────────────────────────────────────────────────────────────┤
-│ [Q] Quit  [R] Refresh  [S] Speed Test  [H] History  [C] Config  [?] Help    │
+│ [Q] Quit  [R] Refresh  [S] Speed Test  [H] History  [C] Clear   [?] Help    │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 

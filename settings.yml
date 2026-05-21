@@ -22,11 +22,10 @@ dns:
 targets:
   icmp:
     - 1.1.1.1
-    - 8.8.8.8
+    - 9.9.9.9
   dns:
-    - google.com
+    - yahoo.com
   http:
-    - https://google.com
     - https://youtube.com
     - https://cloudflare.com
 
