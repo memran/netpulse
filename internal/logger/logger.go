@@ -26,15 +26,10 @@ type Logger struct {
 }
 
 func New(path string, debug bool) (*Logger, error) {
-	level := slog.LevelInfo
-	if debug {
-		level = slog.LevelDebug
-	}
-
-	var w io.Writer
+	var w io.Writer = io.Discard
 	var f *os.File
 
-	if path != "" {
+	if debug && path != "" {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
@@ -45,20 +40,18 @@ func New(path string, debug bool) (*Logger, error) {
 			return nil, err
 		}
 		w = f
-	} else {
-		w = io.Discard
 	}
 
-	opts := &slog.HandlerOptions{
-		Level: level,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
+	if debug {
+		opts.ReplaceAttr = func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.SourceKey {
 				if source, ok := a.Value.Any().(*slog.Source); ok {
 					source.File = filepath.Base(source.File)
 				}
 			}
 			return a
-		},
+		}
 	}
 
 	var handler slog.Handler
@@ -70,7 +63,7 @@ func New(path string, debug bool) (*Logger, error) {
 
 	slog.SetDefault(slog.New(handler))
 
-	log.SetOutput(w)
+	log.SetOutput(io.Discard)
 	log.SetPrefix("netpulse: ")
 
 	l := &Logger{

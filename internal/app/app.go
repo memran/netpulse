@@ -50,8 +50,6 @@ func Run(cfgPath string) error {
 	}
 	defer log.Close()
 
-	log.Infof("NetPulse Community v0.1.0 starting")
-
 	stateMgr := state.NewManager()
 	alerts := alert.NewEngine(50)
 	alerts.Add(alert.SeverityInfo, "system", "NetPulse Community started")
@@ -102,8 +100,7 @@ func Run(cfgPath string) error {
 
 	go func() {
 		select {
-		case sig := <-sigCh:
-			log.Infof("received signal %v, shutting down", sig)
+		case <-sigCh:
 			cancel()
 			if app.prog != nil {
 				app.prog.Quit()
@@ -123,7 +120,6 @@ func Run(cfgPath string) error {
 		repo.Close()
 	}
 
-	log.Info("NetPulse Community stopped")
 	return nil
 }
 
@@ -151,7 +147,6 @@ func (a *App) startStateManager(ctx context.Context) {
 }
 
 func (a *App) startCollectors(ctx context.Context) {
-	a.log.Info("starting collectors")
 	st := a.stateMgr.State()
 
 	if len(a.cfg.Targets.ICMP) > 0 {
@@ -166,8 +161,6 @@ func (a *App) startCollectors(ctx context.Context) {
 			defer a.wg.Done()
 			pingColl.Start(ctx)
 		}()
-	} else {
-		a.log.Info("skipping ICMP collector (no targets configured)")
 	}
 
 	ifaceCfg := a.cfg.Network.Interfaces
@@ -196,8 +189,6 @@ func (a *App) startCollectors(ctx context.Context) {
 			defer a.wg.Done()
 			dnsColl.Start(ctx)
 		}()
-	} else {
-		a.log.Info("skipping DNS collector (no targets configured)")
 	}
 
 	if len(a.cfg.Targets.HTTP) > 0 {
@@ -212,8 +203,6 @@ func (a *App) startCollectors(ctx context.Context) {
 			defer a.wg.Done()
 			httpColl.Start(ctx)
 		}()
-	} else {
-		a.log.Info("skipping HTTP collector (no targets configured)")
 	}
 
 	connDet := collector.NewConnectivityDetector(a.log, st)
@@ -241,8 +230,6 @@ func (a *App) startCollectors(ctx context.Context) {
 		})
 	}
 	a.dash.SetSpeedTester(speedTester, ctx)
-
-	a.log.Info("all collectors started")
 }
 
 func (a *App) startAlertEvaluator(ctx context.Context) {

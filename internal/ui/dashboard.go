@@ -552,13 +552,14 @@ func (d *Dashboard) renderFooterNote(w int) string {
 			valStyle.Render("You are using the FREE version. Only ") +
 			yellowStyle.Render("1 device (this machine)") +
 			valStyle.Render(" can be monitored."),
-		"      " + cyanStyle.Render("Help: ") +
+		cyanStyle.Render("Help: ") +
 			valStyle.Render("Press ") +
 			greenStyle.Render("[?]") +
 			valStyle.Render(" for shortcuts. ") +
 			valStyle.Render("Developed By Mohammad Emran <memran.dhk@gmail.com>"),
 	}
-	return " " + padVisual(strings.Join(lines, "\n"), w) + " "
+	inner := strings.Join(lines, "\n")
+	return " " + padVisual(inner, w) + " "
 }
 
 func (d *Dashboard) renderSeries(title string, data []float64, style lipgloss.Style, stat string, w, h int) []string {
