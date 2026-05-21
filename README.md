@@ -1,12 +1,12 @@
 # NetPulse Community
 
-**Free Version** — A lightweight terminal-first internet diagnostic tool for the local machine running the app.
+**Free Version** — A polished, terminal-first internet diagnostic dashboard for the machine you are sitting on.
 
-NetPulse Community monitors internet connectivity, latency, packet loss, jitter, DNS health, HTTP reachability, interface throughput, alerts, and speed tests from a fullscreen terminal dashboard. It is built for personal users, technicians, gamers, Linux admins, VPS users, office staff, and ISP support engineers performing local machine checks.
+NetPulse Community gives you a fast, full-screen view of internet quality, latency, packet loss, jitter, DNS health, HTTP reachability, interface throughput, alerts, and manual speed tests. It is designed for personal users, technicians, gamers, Linux admins, VPS users, office staff, and ISP support engineers who need an immediate local-machine check.
 
 ## Product Scope
 
-NetPulse Community monitors this machine only:
+NetPulse Community is built to monitor this machine only:
 
 - PC, laptop, desktop, Linux server, VPS, or office workstation
 - Local interfaces such as `eth0`, `wlan0`, `en0`, Wi-Fi, or Ethernet
@@ -209,15 +209,21 @@ Supported configuration areas include refresh interval, interfaces, targets, DNS
 
 ## Free Version Boundaries
 
-NetPulse Community is completely free and local-only. It does not include:
+NetPulse Community is the always-free, local-first edition of NetPulse. It gives you the core desktop dashboard, live diagnostics, and offline-safe storage for this machine only.
 
-- Remote monitoring
+It does not include:
+
+- Remote monitoring or distributed collectors
 - HTTP API or WebSocket streaming
 - Telegram or email alerts
 - Daemon mode or startup-on-boot helpers
 - SNMP, MikroTik API, NetFlow/IPFIX, PPPoE, or BGP monitoring
 - Multi-user features, reports, or PDF/CSV export
-- Distributed collectors or a central dashboard
+- A central dashboard for multiple devices
+
+## Paid Version Included
+
+The paid version is designed for teams and operators who need to expand beyond one local machine. It adds the upgrade path for remote visibility, multi-device workflows, and additional automation features on top of the Community experience.
 
 ## License Model
 
