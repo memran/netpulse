@@ -211,7 +211,11 @@ Supported configuration areas include refresh interval, interfaces, targets, DNS
 
 NetPulse Community is the always-free, local-first edition of NetPulse. It gives you the core desktop dashboard, live diagnostics, and offline-safe storage for this machine only.
 
-It does not include:
+## Paid Version Included
+
+The paid version is designed for teams and operators who need to expand beyond one local machine. It adds the upgrade path for remote visibility, multi-device workflows, and additional automation features on top of the Community experience.
+
+It includes:
 
 - Remote monitoring or distributed collectors
 - HTTP API or WebSocket streaming
@@ -220,10 +224,6 @@ It does not include:
 - SNMP, MikroTik API, NetFlow/IPFIX, PPPoE, or BGP monitoring
 - Multi-user features, reports, or PDF/CSV export
 - A central dashboard for multiple devices
-
-## Paid Version Included
-
-The paid version is designed for teams and operators who need to expand beyond one local machine. It adds the upgrade path for remote visibility, multi-device workflows, and additional automation features on top of the Community experience.
 
 ## License Model
 
