@@ -71,6 +71,14 @@ jobs:
           cp README.md dist/${{ matrix.artifact }}/README.md
           cp settings.yml dist/${{ matrix.artifact }}/settings.yml
 
+      - name: Create Windows launcher
+        if: matrix.goos == 'windows'
+        run: |
+          echo @echo off > dist/${{ matrix.artifact }}/run.bat
+          echo netpulse.exe >> dist/${{ matrix.artifact }}/run.bat
+          echo echo. >> dist/${{ matrix.artifact }}/run.bat
+          echo pause >> dist/${{ matrix.artifact }}/run.bat
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
