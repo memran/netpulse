@@ -71,13 +71,29 @@ jobs:
           cp README.md dist/${{ matrix.artifact }}/README.md
           cp settings.yml dist/${{ matrix.artifact }}/settings.yml
 
-      - name: Create Windows launcher
-        if: matrix.goos == 'windows'
+      - name: Create install scripts
         run: |
-          echo @echo off > dist/${{ matrix.artifact }}/run.bat
-          echo netpulse.exe >> dist/${{ matrix.artifact }}/run.bat
-          echo echo. >> dist/${{ matrix.artifact }}/run.bat
-          echo pause >> dist/${{ matrix.artifact }}/run.bat
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cat > dist/${{ matrix.artifact }}/install.bat << 'BAT'
+@echo off
+echo Installing netpulse to %%USERPROFILE%%\.netpulse\bin...
+mkdir "%%USERPROFILE%%\.netpulse\bin" 2>nul
+copy /Y "%~dp0netpulse.exe" "%%USERPROFILE%%\.netpulse\bin\netpulse.exe"
+setx PATH "%%USERPROFILE%%\.netpulse\bin;%%PATH%"
+echo.
+echo Installed! Open a NEW terminal and run: netpulse
+pause
+BAT
+          else
+            cat > dist/${{ matrix.artifact }}/install.sh << 'SH'
+#!/bin/sh
+echo "Installing netpulse to /usr/local/bin..."
+sudo cp -f "$(dirname "$0")/netpulse" /usr/local/bin/netpulse
+sudo chmod +x /usr/local/bin/netpulse
+echo "Done! Run 'netpulse' from any terminal."
+SH
+            chmod +x dist/${{ matrix.artifact }}/install.sh
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
