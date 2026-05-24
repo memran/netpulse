@@ -1305,6 +1305,9 @@ func joinVertical(parts []string, heights []int) string {
 }
 
 func forceHeight(lines []string, height int) []string {
+	if height < 0 {
+		return nil
+	}
 	if len(lines) > height {
 		return lines[:height]
 	}
