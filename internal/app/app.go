@@ -18,6 +18,7 @@ import (
 	ifacecoll "github.com/memran/netpulse/internal/collector/netinterface"
 	pingcoll "github.com/memran/netpulse/internal/collector/ping"
 	speedcoll "github.com/memran/netpulse/internal/collector/speedtest"
+	tracert "github.com/memran/netpulse/internal/collector/traceroute"
 	"github.com/memran/netpulse/internal/config"
 	"github.com/memran/netpulse/internal/logger"
 	"github.com/memran/netpulse/internal/state"
@@ -230,6 +231,12 @@ func (a *App) startCollectors(ctx context.Context) {
 		})
 	}
 	a.dash.SetSpeedTester(speedTester, ctx)
+
+	tracerRunner := tracert.NewRunner(a.log, st,
+		a.cfg.Traceroute.MaxHops,
+		a.cfg.Traceroute.Probes,
+	)
+	a.dash.SetTracerouteRunner(tracerRunner, ctx)
 }
 
 func (a *App) startAlertEvaluator(ctx context.Context) {

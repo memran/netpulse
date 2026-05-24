@@ -90,6 +90,20 @@ type SpeedTestResult struct {
 	CompletedAt   time.Time `json:"completed_at"`
 }
 
+type TracerouteHop struct {
+	Hop  int
+	IP   string
+	RTTs []float64
+}
+
+type TracerouteResult struct {
+	Target      string
+	Hops        []TracerouteHop
+	Running     bool
+	Error       string
+	CompletedAt time.Time
+}
+
 type AppState struct {
 	mu sync.RWMutex
 
@@ -101,7 +115,8 @@ type AppState struct {
 	DNSStats   map[string]DNSStats
 	HTTPStats  map[string]HTTPStats
 
-	SpeedTest SpeedTestResult
+	SpeedTest  SpeedTestResult
+	Traceroute TracerouteResult
 
 	LastUpdated time.Time
 
@@ -153,6 +168,7 @@ func (s *AppState) Read() AppStateSnapshot {
 		DNSStats:       copyMap(s.DNSStats),
 		HTTPStats:      copyMap(s.HTTPStats),
 		SpeedTest:      s.SpeedTest,
+		Traceroute:     s.Traceroute,
 		LastUpdated:    s.LastUpdated,
 	}
 }
@@ -165,6 +181,7 @@ type AppStateSnapshot struct {
 	DNSStats       map[string]DNSStats
 	HTTPStats      map[string]HTTPStats
 	SpeedTest      SpeedTestResult
+	Traceroute     TracerouteResult
 	LastUpdated    time.Time
 }
 
@@ -214,6 +231,18 @@ func (s *AppState) SetSpeedTest(result SpeedTestResult) {
 func (s *AppState) SetSpeedTestRunning(running bool) {
 	s.Update(func(as *AppState) {
 		as.SpeedTest.Running = running
+	})
+}
+
+func (s *AppState) SetTraceroute(result TracerouteResult) {
+	s.Update(func(as *AppState) {
+		as.Traceroute = result
+	})
+}
+
+func (s *AppState) SetTracerouteRunning(running bool) {
+	s.Update(func(as *AppState) {
+		as.Traceroute.Running = running
 	})
 }
 

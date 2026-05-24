@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/memran/netpulse/internal/alert"
 	"github.com/memran/netpulse/internal/collector/speedtest"
+	tracert "github.com/memran/netpulse/internal/collector/traceroute"
 	"github.com/memran/netpulse/internal/state"
 	"github.com/memran/netpulse/internal/storage"
 )
@@ -49,6 +52,13 @@ type Dashboard struct {
 	lastSpeedTestAt   time.Time
 	localPanelCache   string
 	localPanelKey     string
+	tracerRunner      *tracert.Runner
+	showTraceroute    bool
+	showTracerInput   bool
+	tracerInputBuf    string
+	tracerouteOffset  int
+	copiedFlash       time.Time
+	showHelp          bool
 }
 
 var (
@@ -98,6 +108,11 @@ func (d *Dashboard) SetSpeedTester(t *speedtest.Tester, ctx context.Context) {
 	d.ctx = ctx
 }
 
+func (d *Dashboard) SetTracerouteRunner(t *tracert.Runner, ctx context.Context) {
+	d.tracerRunner = t
+	d.ctx = ctx
+}
+
 func (d *Dashboard) SetStore(store *storage.Repository) {
 	d.store = store
 }
@@ -119,27 +134,85 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return d, nil
 	case ClockTickMsg:
 		return d, tickClock()
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			d.quitting = true
-			return d, tea.Quit
-		case "s", "S":
-			if d.speedTester != nil && d.ctx != nil {
-				go d.speedTester.Run(d.ctx)
+		case tea.KeyMsg:
+			if d.showTracerInput {
+				switch msg.String() {
+				case "enter":
+					target := strings.TrimSpace(d.tracerInputBuf)
+					d.showTracerInput = false
+					if target != "" && d.tracerRunner != nil && d.ctx != nil {
+						d.showTraceroute = true
+						go d.tracerRunner.Run(d.ctx, target)
+					}
+				case "esc":
+					d.showTracerInput = false
+				case "backspace":
+					if len(d.tracerInputBuf) > 0 {
+						d.tracerInputBuf = d.tracerInputBuf[:len(d.tracerInputBuf)-1]
+					}
+				default:
+					if len(msg.String()) == 1 && msg.String()[0] >= 32 {
+						d.tracerInputBuf += msg.String()
+					}
+				}
+				return d, nil
 			}
-		case "c":
-			d.alertEng.Clear()
-			d.alertScrollOffset = 0
-		case "up":
-			if d.alertScrollOffset > 0 {
-				d.alertScrollOffset--
+			if d.showHelp {
+				switch msg.String() {
+				case "ctrl+c", "q":
+					d.quitting = true
+					return d, tea.Quit
+				case "?":
+					d.showHelp = false
+				default:
+					d.showHelp = false
+				}
+				return d, nil
 			}
-		case "down":
-			d.alertScrollOffset++
-		case "h", "r":
-			d.loadHistory()
-		}
+			switch msg.String() {
+			case "ctrl+c", "q":
+				d.quitting = true
+				return d, tea.Quit
+			case "s", "S":
+				if d.speedTester != nil && d.ctx != nil {
+					go d.speedTester.Run(d.ctx)
+				}
+			case "t", "T":
+				if d.tracerRunner != nil && d.ctx != nil {
+					d.showTracerInput = true
+					d.showTraceroute = false
+					d.tracerInputBuf = ""
+				}
+			case "y", "Y":
+				if d.showTraceroute {
+					d.copiedFlash = time.Now()
+					report := d.formatTracerouteReport(d.snapshot.Traceroute)
+					go copyToClipboard(report)
+				}
+			case "c":
+				d.alertEng.Clear()
+				d.alertScrollOffset = 0
+				d.showTraceroute = false
+				d.showTracerInput = false
+			case "up":
+				if d.showTraceroute {
+					if d.tracerouteOffset > 0 {
+						d.tracerouteOffset--
+					}
+				} else if d.alertScrollOffset > 0 {
+					d.alertScrollOffset--
+				}
+			case "down":
+				if d.showTraceroute {
+					d.tracerouteOffset++
+				} else {
+					d.alertScrollOffset++
+				}
+			case "h", "r":
+				d.loadHistory()
+			case "?":
+				d.showHelp = true
+			}
 	case SnapshotMsg:
 		d.snapshot = msg.Snapshot
 		snap := msg.Snapshot
@@ -199,7 +272,11 @@ func (d *Dashboard) View() string {
 	note := frameBox(d.renderFooterNote(contentW-4), contentW-2)
 
 	content := strings.Join([]string{header, cards, body, footer, note}, "\n")
-	return baseStyle.Render(normalizeViewport(applyOuterMargin(content, marginX, marginY), d.width, d.height))
+	content = baseStyle.Render(normalizeViewport(applyOuterMargin(content, marginX, marginY), d.width, d.height))
+	if d.showHelp {
+		content = d.renderHelpOverlay(content)
+	}
+	return content
 }
 
 func tickClock() tea.Cmd {
@@ -254,9 +331,18 @@ func (d *Dashboard) renderBody(snap state.AppStateSnapshot, w, h int) string {
 		d.renderGraphs(colW[1]-2, centerTop),
 		d.renderHistory(colW[1]-2, centerBottom),
 	}, []int{centerTop, centerBottom})
+	var rightBottomPanel string
+	switch {
+	case d.showTracerInput:
+		rightBottomPanel = d.renderTracerInput(colW[2]-2, rightBottom)
+	case d.showTraceroute:
+		rightBottomPanel = d.renderTraceroute(snap, colW[2]-2, rightBottom)
+	default:
+		rightBottomPanel = d.renderAlerts(colW[2]-2, rightBottom)
+	}
 	right := joinVertical([]string{
 		d.renderSpeedTest(snap, colW[2]-2, rightTop),
-		d.renderAlerts(colW[2]-2, rightBottom),
+		rightBottomPanel,
 	}, []int{rightTop, rightBottom})
 
 	return joinHorizontal([]string{left, center, right}, colW, h)
@@ -515,12 +601,343 @@ func (d *Dashboard) renderAlerts(w, h int) string {
 	return frameBox(strings.Join(forceHeight(lines, h-2), "\n"), w)
 }
 
+func (d *Dashboard) renderTracerInput(w, h int) string {
+	lines := []string{
+		panelTitle("TRACEROUTE", "(Input)", w),
+		bdStyle.Render(strings.Repeat("-", w)),
+		"",
+		"",
+		centerText(cyanStyle.Render("Enter target IP:"), w),
+		"",
+		"  " + cyanStyle.Render("> ") + valStyle.Render(d.tracerInputBuf) + bdStyle.Render("█"),
+		"",
+		centerText(mutedStyle.Render("Press [Enter] to start, [Esc] to cancel"), w),
+	}
+	return frameBox(strings.Join(forceHeight(lines, h-2), "\n"), w)
+}
+
+func (d *Dashboard) renderTraceroute(snap state.AppStateSnapshot, w, h int) string {
+	tr := snap.Traceroute
+	healthLabel, healthStyle := d.tracerouteHealth(tr)
+	lines := []string{
+		splitLine(hdrStyle.Render("TRACEROUTE"), healthStyle.Render(healthLabel), w),
+		bdStyle.Render(strings.Repeat("-", w)),
+	}
+
+	if tr.Running {
+		lines = append(lines,
+			"",
+			"",
+			centerText(blueStyle.Render("Traceroute is running..."), w),
+			"",
+			centerText(mutedStyle.Render("Press [C] to cancel"), w),
+		)
+		return frameBox(strings.Join(forceHeight(lines, h-2), "\n"), w)
+	}
+
+	if tr.Error != "" {
+		lines = append(lines,
+			"",
+			"",
+			centerText(redStyle.Render("Traceroute failed"), w),
+			centerText(mutedStyle.Render(tr.Error), w),
+			"",
+			centerText(greenStyle.Render("[T]")+" "+valStyle.Render("Retry"), w),
+		)
+		return frameBox(strings.Join(forceHeight(lines, h-2), "\n"), w)
+	}
+
+	if len(tr.Hops) == 0 {
+		lines = append(lines,
+			"",
+			"",
+			centerText(mutedStyle.Render("No traceroute data yet"), w),
+			"",
+			centerText(greenStyle.Render("[T]")+" "+valStyle.Render("Run Traceroute"), w),
+		)
+		return frameBox(strings.Join(forceHeight(lines, h-2), "\n"), w)
+	}
+
+	colH := "Hop"
+	colIP := "IP Address"
+	colRTT := "RTT"
+
+	hopW := 4
+	ipW := maxInt(15, w-hopW-33)
+	rttW := maxInt(12, w-hopW-ipW-6)
+	if rttW < 10 {
+		rttW = 10
+		ipW = w - hopW - rttW - 6
+		if ipW < 10 {
+			ipW = 10
+		}
+	}
+
+	lines = append(lines,
+		lblStyle.Render(padRight(colH, hopW))+" "+
+			lblStyle.Render(padRight(colIP, ipW))+" "+
+			lblStyle.Render(padRight(colRTT, rttW)),
+		bdStyle.Render(strings.Repeat("-", w)),
+	)
+
+	maxRows := maxInt(1, h-11)
+	start := minInt(d.tracerouteOffset, maxInt(0, len(tr.Hops)-maxRows))
+	end := minInt(len(tr.Hops), start+maxRows)
+	for _, hop := range tr.Hops[start:end] {
+		ip := hop.IP
+		if ip == "*" || ip == "" {
+			ip = "Request timed out"
+		}
+		rttStr := fmtRTTs(hop.RTTs)
+		lines = append(lines,
+			valStyle.Render(padRight(fmt.Sprintf("%d", hop.Hop), hopW))+" "+
+				cyanStyle.Render(padRight(ip, ipW))+" "+
+				rttStyle(hop.RTTs).Render(padRight(rttStr, rttW)),
+		)
+	}
+
+	if len(tr.Hops) > maxRows {
+		scroll := fmt.Sprintf("(%d-%d/%d)", start+1, end, len(tr.Hops))
+		lines = append(lines, mutedStyle.Render(scroll))
+	}
+
+	last := tr.Hops[len(tr.Hops)-1]
+	reached := last.IP != "" && last.IP != "*"
+	destStatus := redStyle.Render("Unreachable")
+	if reached {
+		destStatus = greenStyle.Render(last.IP)
+	}
+	lines = append(lines,
+		bdStyle.Render(strings.Repeat("-", w)),
+		splitLine(
+			lblStyle.Render(fmt.Sprintf("Hops: %d", len(tr.Hops))),
+			lblStyle.Render("Destination: ")+destStatus,
+			w,
+		),
+	)
+
+	copied := time.Since(d.copiedFlash) < 2*time.Second
+	actionLine := greenStyle.Render("[C]")+" "+cyanStyle.Render("Back   ")+
+		greenStyle.Render("[T]")+" "+cyanStyle.Render("Again   ")+
+		greenStyle.Render("[Y]")+" "+cyanStyle.Render("Copy")
+	if copied {
+		actionLine = greenStyle.Render("✓") + " " + cyanStyle.Render("Copied!    ") + actionLine
+	}
+	lines = append(lines, centerText(actionLine, w))
+	return frameBox(strings.Join(forceHeight(lines, h-2), "\n"), w)
+}
+
+func (d *Dashboard) tracerouteHealth(tr state.TracerouteResult) (string, lipgloss.Style) {
+	if tr.Running {
+		return "RUNNING", blueStyle
+	}
+	if tr.Error != "" || len(tr.Hops) == 0 {
+		return "FAILED", redStyle
+	}
+	last := tr.Hops[len(tr.Hops)-1]
+	reached := last.IP != "" && last.IP != "*"
+	if !reached {
+		return "UNREACHABLE", redStyle
+	}
+	var timeouts, probes int
+	for _, h := range tr.Hops {
+		for _, rtt := range h.RTTs {
+			probes++
+			if rtt == 0 {
+				timeouts++
+			}
+		}
+	}
+	timeoutRatio := 0.0
+	if probes > 0 {
+		timeoutRatio = float64(timeouts) / float64(probes)
+	}
+	if timeoutRatio >= 0.5 {
+		return "DEGRADED", yellowStyle
+	}
+	return "GOOD", greenStyle
+}
+
+func (d *Dashboard) formatTracerouteReport(tr state.TracerouteResult) string {
+	var b strings.Builder
+	b.WriteString("NETPULSE TRACEROUTE REPORT\n")
+	b.WriteString("==========================\n")
+	b.WriteString(fmt.Sprintf("Target:      %s\n", tr.Target))
+	b.WriteString(fmt.Sprintf("Date:        %s\n", tr.CompletedAt.Local().Format("2006-01-02 15:04:05")))
+
+	health, _ := d.tracerouteHealth(tr)
+	b.WriteString(fmt.Sprintf("Health:      %s\n", health))
+	b.WriteString(fmt.Sprintf("Hops:        %d\n", len(tr.Hops)))
+
+	if tr.Error != "" {
+		b.WriteString(fmt.Sprintf("Error:       %s\n", tr.Error))
+	}
+
+	if len(tr.Hops) > 0 {
+		last := tr.Hops[len(tr.Hops)-1]
+		reached := last.IP != "" && last.IP != "*"
+		if reached {
+			b.WriteString(fmt.Sprintf("Destination: %s (Reached)\n", last.IP))
+		} else {
+			b.WriteString("Destination: Unreachable\n")
+		}
+	}
+	b.WriteString("\n")
+
+	b.WriteString(fmt.Sprintf("%-4s %-18s %s\n", "Hop", "IP", "RTT"))
+	b.WriteString(strings.Repeat("-", 40) + "\n")
+
+	for _, hop := range tr.Hops {
+		ip := hop.IP
+		if ip == "" || ip == "*" {
+			ip = "Request timed out"
+		}
+		rttStr := fmtRTTsReport(hop.RTTs)
+		b.WriteString(fmt.Sprintf("%-4d %-18s %s\n", hop.Hop, ip, rttStr))
+	}
+
+	return b.String()
+}
+
+func copyToClipboard(text string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		return
+	}
+	stdin, _ := cmd.StdinPipe()
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	stdin.Write([]byte(text))
+	stdin.Close()
+	cmd.Wait()
+}
+
+func fmtRTTsReport(rtts []float64) string {
+	var parts []string
+	for _, rtt := range rtts {
+		if rtt == 0 {
+			parts = append(parts, "*")
+		} else {
+			parts = append(parts, fmt.Sprintf("%.1fms", rtt))
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+func fmtRTTs(rtts []float64) string {
+	var parts []string
+	for _, rtt := range rtts {
+		if rtt == 0 {
+			parts = append(parts, "*")
+		} else {
+			parts = append(parts, fmt.Sprintf("%.1f", rtt))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func rttStyle(rtts []float64) lipgloss.Style {
+	for _, rtt := range rtts {
+		if rtt == 0 {
+			return yellowStyle
+		}
+	}
+	return greenStyle
+}
+
+func (d *Dashboard) renderHelpOverlay(base string) string {
+	lines := strings.Split(base, "\n")
+	if len(lines) == 0 {
+		return base
+	}
+	helpW := 72
+	helpH := 24
+	boxX := (d.width - helpW) / 2
+	boxY := (d.height - helpH) / 2
+
+	var help []string
+	help = append(help, hdrStyle.Render("  NETPULSE TUI  v1.0.0"))
+	help = append(help, bdStyle.Render("  " + strings.Repeat("─", helpW-4)))
+	help = append(help, "")
+	help = append(help, "  "+hdrStyle.Render("KEYBOARD SHORTCUTS"))
+	help = append(help, "")
+	help = append(help, "  "+lblStyle.Render("Quit")+mutedStyle.Render(" .............. ")+valStyle.Render("q / Ctrl+C"))
+	help = append(help, "  "+lblStyle.Render("Refresh")+mutedStyle.Render(" ......... ")+valStyle.Render("r / h"))
+	help = append(help, "  "+lblStyle.Render("Speed Test")+mutedStyle.Render(" ...... ")+valStyle.Render("s"))
+	help = append(help, "  "+lblStyle.Render("Traceroute")+mutedStyle.Render(" ...... ")+valStyle.Render("t"))
+	help = append(help, "  "+lblStyle.Render("Copy Report")+mutedStyle.Render(" ..... ")+valStyle.Render("y"))
+	help = append(help, "  "+lblStyle.Render("Clear Alerts")+mutedStyle.Render(" .... ")+valStyle.Render("c"))
+	help = append(help, "  "+lblStyle.Render("Scroll Up/Down")+mutedStyle.Render(" .. ")+valStyle.Render("↑ / ↓"))
+	help = append(help, "  "+lblStyle.Render("Help")+mutedStyle.Render(" ............ ")+valStyle.Render("?"))
+	help = append(help, "")
+	help = append(help, "  "+hdrStyle.Render("ABOUT"))
+	help = append(help, "  "+valStyle.Render("NetPulse is a real-time network monitoring TUI"))
+	help = append(help, "  "+valStyle.Render("for macOS, Linux, and Windows. Monitor ping,"))
+	help = append(help, "  "+valStyle.Render("DNS, HTTP, interface stats, speed, and traceroute"))
+	help = append(help, "  "+valStyle.Render("from a single terminal dashboard."))
+	help = append(help, "")
+	help = append(help, "  "+hdrStyle.Render("DEVELOPER"))
+	help = append(help, "  "+valStyle.Render("Mohammad Emran  <memran.dhk@gmail.com>"))
+	help = append(help, "  "+cyanStyle.Render("  https://github.com/memran"))
+	help = append(help, "")
+	help = append(help, "  "+mutedStyle.Render("Press any key to close"))
+
+	for i := range help {
+		help[i] = padVisual(help[i], helpW-4)
+	}
+
+	boxLines := make([]string, helpH)
+	topBorder := "  " + bdStyle.Render("┌"+strings.Repeat("─", helpW-4)+"┐")
+	bottomBorder := "  " + bdStyle.Render("└"+strings.Repeat("─", helpW-4)+"┘")
+	padTop := (helpH - len(help) - 2) / 2
+	if padTop < 0 {
+		padTop = 0
+	}
+	idx := 0
+	for y := 0; y < helpH; y++ {
+		if y == padTop {
+			boxLines[y] = topBorder
+		} else if y > padTop && y <= padTop+len(help) {
+			line := help[idx]
+			idx++
+			boxLines[y] = "  " + bdStyle.Render("│") + line + bdStyle.Render("│")
+		} else if y == padTop+len(help)+1 {
+			boxLines[y] = bottomBorder
+		} else {
+			boxLines[y] = "  " + bdStyle.Render("│") + strings.Repeat(" ", helpW-4) + bdStyle.Render("│")
+		}
+	}
+
+	for y := 0; y < helpH && y+boxY < len(lines); y++ {
+		line := lines[y+boxY]
+		if len(line) > boxX {
+			line = line[:boxX]
+		}
+		line += boxLines[y]
+		if len(line) < d.width {
+			line += strings.Repeat(" ", d.width-len(line))
+		}
+		lines[y+boxY] = line
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func (d *Dashboard) renderFooterBar(w int) string {
 	leftSets := [][]string{
 		{
 			greenStyle.Render("[Q]") + valStyle.Render(" Quit"),
 			greenStyle.Render("[R]") + valStyle.Render(" Refresh"),
 			greenStyle.Render("[S]") + valStyle.Render(" Speed Test"),
+			greenStyle.Render("[T]") + valStyle.Render(" Traceroute"),
 			greenStyle.Render("[H]") + valStyle.Render(" History"),
 			greenStyle.Render("[C]") + valStyle.Render(" Clear"),
 			greenStyle.Render("[?]") + valStyle.Render(" Help"),
@@ -529,6 +946,7 @@ func (d *Dashboard) renderFooterBar(w int) string {
 			greenStyle.Render("[Q]"),
 			greenStyle.Render("[R]"),
 			greenStyle.Render("[S]"),
+			greenStyle.Render("[T]"),
 			greenStyle.Render("[H]"),
 			greenStyle.Render("[C]"),
 			greenStyle.Render("[?]"),
@@ -539,11 +957,11 @@ func (d *Dashboard) renderFooterBar(w int) string {
 		for _, sep := range []string{"      ", "   ", " "} {
 			left := strings.Join(set, sep)
 			if visibleWidth(left)+1+visibleWidth(right) <= w {
-				return " " + padVisual(splitLine(left, right, w), w) + " "
+				return splitLine(left, right, w)
 			}
 		}
 	}
-	return " " + padVisual(right, w) + " "
+	return padVisual(right, w)
 }
 
 func (d *Dashboard) renderFooterNote(w int) string {
@@ -558,8 +976,11 @@ func (d *Dashboard) renderFooterNote(w int) string {
 			valStyle.Render(" for shortcuts. ") +
 			valStyle.Render("Developed By Mohammad Emran <memran.dhk@gmail.com>"),
 	}
-	inner := strings.Join(lines, "\n")
-	return " " + padVisual(inner, w) + " "
+	padded := make([]string, len(lines))
+	for i := range lines {
+		padded[i] = padVisual(lines[i], w)
+	}
+	return strings.Join(padded, "\n")
 }
 
 func (d *Dashboard) renderSeries(title string, data []float64, style lipgloss.Style, stat string, w, h int) []string {

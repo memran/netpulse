@@ -52,6 +52,11 @@ speedtest:
   download_url: "https://speed.cloudflare.com/__down"
   upload_url: "https://speed.cloudflare.com/__up"
 
+traceroute:
+  target: 1.1.1.1
+  max_hops: 30
+  probes: 3
+
 storage:
   sqlite_path: netpulse.db
 
@@ -61,15 +66,16 @@ ui:
 `
 
 type Config struct {
-	App     AppConfig
-	Network NetworkConfig
-	Ping    PingConfig
-	DNS     DNSConfig
-	Targets TargetsConfig
-	HTTP    HTTPConfig
-	Speed   SpeedConfig
-	Storage StorageConfig
-	UI      UIConfig
+	App        AppConfig
+	Network    NetworkConfig
+	Ping       PingConfig
+	DNS        DNSConfig
+	Targets    TargetsConfig
+	HTTP       HTTPConfig
+	Speed      SpeedConfig
+	Traceroute TracerouteConfig
+	Storage    StorageConfig
+	UI         UIConfig
 }
 
 type AppConfig struct {
@@ -114,6 +120,12 @@ type SpeedConfig struct {
 	Workers        int
 	DownloadURL    string
 	UploadURL      string
+}
+
+type TracerouteConfig struct {
+	Target  string
+	MaxHops int
+	Probes  int
 }
 
 type StorageConfig struct {
@@ -163,6 +175,11 @@ func Default() *Config {
 			Workers:        4,
 			DownloadURL:    "https://speed.cloudflare.com/__down",
 			UploadURL:      "https://speed.cloudflare.com/__up",
+		},
+		Traceroute: TracerouteConfig{
+			Target:  "1.1.1.1",
+			MaxHops: 30,
+			Probes:  3,
 		},
 		Storage: StorageConfig{
 			SQLitePath: "netpulse.db",
@@ -286,6 +303,10 @@ func applyConfigStore(cfg *Config, c *console.Config) error {
 	cfg.Speed.Workers = c.GetInt("speedtest.workers", cfg.Speed.Workers)
 	cfg.Speed.DownloadURL = c.GetString("speedtest.download_url", cfg.Speed.DownloadURL)
 	cfg.Speed.UploadURL = c.GetString("speedtest.upload_url", cfg.Speed.UploadURL)
+
+	cfg.Traceroute.Target = c.GetString("traceroute.target", cfg.Traceroute.Target)
+	cfg.Traceroute.MaxHops = c.GetInt("traceroute.max_hops", cfg.Traceroute.MaxHops)
+	cfg.Traceroute.Probes = c.GetInt("traceroute.probes", cfg.Traceroute.Probes)
 
 	cfg.Storage.SQLitePath = c.GetString("storage.sqlite_path", cfg.Storage.SQLitePath)
 
