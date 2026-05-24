@@ -97,12 +97,21 @@ jobs:
           for dir in */; do
             name="${dir%/}"
             cd "$dir"
-            tar czf "../${name}.tar.gz" .
+            case "$name" in
+              *-windows-*|*-darwin-*)
+                zip -r "../${name}.zip" .
+                ;;
+              *)
+                tar czf "../${name}.tar.gz" .
+                ;;
+            esac
             cd ..
           done
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.tar.gz
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
           generate_release_notes: true
