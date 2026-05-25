@@ -3,6 +3,7 @@ package traceroute
 import (
 	"context"
 	"fmt"
+	"net"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -116,16 +117,24 @@ func parseOutput(output string, goos string) []state.TracerouteHop {
 
 		switch goos {
 		case "windows":
-			hop.IP = fields[len(fields)-1]
-			for _, f := range fields[1 : len(fields)-1] {
-				if f == "*" {
-					hop.RTTs = append(hop.RTTs, 0)
-				} else if f == "Request" {
+			var rtts []float64
+			for _, f := range fields[1:] {
+				switch {
+				case f == "*":
+					rtts = append(rtts, 0)
+				case f == "<1":
+					rtts = append(rtts, 1)
+				case f == "ms" || f == "Request" || f == "timed" || f == "out.":
 					continue
-				} else if v, err := strconv.ParseFloat(f, 64); err == nil {
-					hop.RTTs = append(hop.RTTs, v)
+				default:
+					if v, err := strconv.ParseFloat(f, 64); err == nil {
+						rtts = append(rtts, v)
+					} else if ip := net.ParseIP(f); ip != nil {
+						hop.IP = f
+					}
 				}
 			}
+			hop.RTTs = rtts
 		default:
 			hop.IP = fields[1]
 			for _, f := range fields[2:] {
