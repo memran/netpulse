@@ -71,8 +71,9 @@ jobs:
           cp README.md dist/${{ matrix.artifact }}/README.md
           cp settings.yml dist/${{ matrix.artifact }}/settings.yml
 
-      - name: Add install scripts
+      - name: Add run + install scripts
         run: |
+          cp scripts/run.bat dist/${{ matrix.artifact }}/run.bat
           cp scripts/install.bat dist/${{ matrix.artifact }}/install.bat
           if [ "${{ matrix.goos }}" != "windows" ]; then
             cp scripts/install.sh dist/${{ matrix.artifact }}/install.sh
