@@ -51,13 +51,15 @@ Collectors never directly update the UI. All data flows through the shared `AppS
 
 ## Quick Start
 
+### macOS / Linux
+
 ```bash
 # Build from source
 git clone https://github.com/memran/netpulse.git
 cd netpulse
 go build -o netpulse .
 
-# Run (root privileges required for ICMP ping)
+# Run (ICMP ping and traceroute require root)
 sudo ./netpulse
 ```
 
@@ -66,6 +68,15 @@ Or with a custom config path:
 ```bash
 sudo ./netpulse /path/to/settings.yml
 ```
+
+### Windows
+
+```
+Right-click Command Prompt or PowerShell → "Run as administrator"
+netpulse.exe
+```
+
+Or double-click `run.bat` from the release archive (no install required, just try it).
 
 ## TUI Controls
 
@@ -204,7 +215,9 @@ Supported configuration areas include refresh interval, interfaces, targets, DNS
 ## Requirements
 
 - Go 1.25+
-- Root/administrator privileges for ICMP ping on many systems
+- Root/administrator privileges for ICMP ping and traceroute
+  - **macOS/Linux:** run with `sudo`
+  - **Windows:** right-click Command Prompt → "Run as administrator"
 - A terminal with true color support (iTerm2, Kitty, modern terminals)
 
 ## Free Version Boundaries
