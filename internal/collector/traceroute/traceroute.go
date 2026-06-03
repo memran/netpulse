@@ -82,7 +82,7 @@ func (r *Runner) execute(ctx context.Context, target string) ([]state.Traceroute
 		cmd = exec.CommandContext(ctx, "traceroute", args...)
 	}
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return nil, fmt.Errorf("traceroute exited with %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(exitErr.Stderr)))
